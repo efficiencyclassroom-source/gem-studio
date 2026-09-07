@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gem Archive Manager</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen flex flex-col font-sans">
+
+  <!-- ヘッダー -->
+  <header class="bg-white border-b border-slate-200 px-6 py-3.5 flex items-center justify-between shadow-sm">
+    <div class="flex items-center space-x-3">
+      <div class="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-bold text-lg shadow-sm">G</div>
+      <h1 class="text-lg font-bold text-slate-800 tracking-tight">Gem Archive Studio</h1>
+    </div>
+    <div class="flex items-center space-x-3">
+      <span id="save-status" class="text-xs bg-slate-100 text-slate-600 px-3 py-1 rounded-full font-medium">ブラウザ内に安全に保存中</span>
+      <button id="clear-btn" class="hidden text-xs text-red-500 hover:text-red-700 font-medium px-2 py-1">保存データを削除</button>
+    </div>
+  </header>
+
+  <main class="flex-1 flex overflow-hidden p-6 gap-6 max-w-7xl mx-auto w-full">
+    
+    <!-- アップロード受付エリア -->
+    <div id="drop-zone" class="flex-1 border-2 border-dashed border-indigo-200 hover:border-indigo-400 bg-white rounded-2xl flex flex-col items-center justify-center p-8 text-center transition-all cursor-pointer shadow-sm">
+      <div class="w-14 h-14 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mb-4 text-2xl font-bold">📂</div>
+      <h2 class="text-lg font-bold text-slate-700 mb-1">GemデータのZIPファイルを読み込む</h2>
+      <p class="text-xs text-slate-400 mb-5">ZIPファイルをドラッグ＆ドロップ、またはクリックして選択</p>
+      <input type="file" id="file-input" accept=".zip" class="hidden">
+      <button onclick="document.getElementById('file-input').click()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-5 py-2.5 rounded-lg shadow-sm transition">
+        ファイルを選択
+      </button>
+    </div>
+
+    <!-- メインビューアー（保存データがある場合や解析後に表示） -->
+    <div id="viewer-container" class="hidden flex-1 flex gap-6 w-full h-[calc(100vh-130px)]">
+      <!-- 左サイドバー: リスト表示 -->
+      <div class="w-80 bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col overflow-hidden">
+        <div class="p-3.5 border-b border-slate-100 bg-slate-50/50 space-y-2">
+          <div class="flex justify-between items-center">
+            <span class="text-xs font-bold text-slate-500 tracking-wider">保存済み GEM 一覧</span>
+            <button onclick="document.getElementById('file-input').click()" class="text-xs text-indigo-600 hover:text-indigo-800 font-semibold">+ 追加読込</button>
+          </div>
+          <input type="text" id="search-box" placeholder="Gemを検索..." class="w-full text-xs px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+        </div>
+        <div id="gem-list" class="flex-1 overflow-y-auto divide-y divide-slate-100"></div>
+      </div>
+
+      <!-- 右メインパネル: 詳細 -->
+      <div class="flex-1 bg-white rounded-2xl border border-slate-200 shadow-sm p-6 flex flex-col overflow-hidden">
+        <div class="flex items-start justify-between pb-4 border-b border-slate-100">
+          <div>
+            <h2 id="view-title" class="text-xl font-bold text-slate-800 leading-snug">Gemを選択してください</h2>
+            <div id="view-desc-box" class="mt-2 bg-slate-50 border border-slate-100 rounded-lg p-3 hidden">
+              <span class="text-xs font-bold text-slate-400 block mb-0.5">説明</span>
+              <p id="view-desc" class="text-xs text-slate-600 leading-relaxed"></p>
+            </div>
+          </div>
+          <button id="copy-btn" class="hidden bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 px-4 py-2 rounded-lg text-xs font-semibold transition shrink-0 ml-4">
+            指示をコピー
+          </button>
+        </div>
+
+        <div class="mt-4 flex-1 flex flex-col min-h-0">
+          <div class="flex justify-between items-center mb-2">
+            <span class="text-xs font-bold text-slate-400">カスタム指示 (プロンプト)</span>
+            <span id="char-count" class="text-xs text-slate-400 font-mono"></span>
+          </div>
+          <pre id="view-instruction" class="flex-1 bg-slate-900 text-slate-100 rounded-xl p-4 text-xs font-mono whitespace-pre-wrap break-words leading-relaxed overflow-y-auto border border-slate-800"></pre>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <script>
+    const STORAGE_KEY = 'saved_gems_data';
+    let gemsData = [];
+    let selectedIndex = 0;
+
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+    const clearBtn = document.getElementById('clear-btn');
+    const searchBox = document.getElementById('search-box');
+
+    // 起動時に保存されたデータを読み込み
+    window.addEventListener('DOMContentLoaded', () => {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        try {
+          gemsData = JSON.parse(saved);
+          if (gemsData.length > 0) {
+            showViewer();
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      }
+    });
+
+    fileInput.addEventListener('change', (e) => handleFile(e.target.files[0]));
+    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('border-indigo-500'); });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('border-indigo-500'));
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('border-indigo-500');
+      if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+    });
+
+    clearBtn.addEventListener('click', () => {
+      if (confirm('ブラウザに保存されているGemデータをすべて削除しますか？')) {
+        localStorage.removeItem(STORAGE_KEY);
+        gemsData = [];
+        location.reload();
+      }
+    });
+
+    searchBox.addEventListener('input', (e) => {
+      const q = e.target.value.toLowerCase();
+      const filtered = gemsData.filter(g => g.title.toLowerCase().includes(q) || g.instruction.toLowerCase().includes(q));
+      renderList(filtered);
+    });
+
+    // バイナリ／混在テキストからタイトル・説明・カスタム指示を抽出するパーサー
+    function parseGemRawText(raw, filename) {
+      let title = filename.replace(/\.[^/.]+$/, "");
+      let description = "";
+      let instruction = "";
+
+      // # から始まるセクション（カスタム指示）を探す
+      const hashIndex = raw.indexOf('#');
+      if (hashIndex !== -1) {
+        const headerPart = raw.substring(0, hashIndex);
+        const bodyPart = raw.substring(hashIndex);
+
+        // タイトルと説明の分離
+        const cleanedHeader = headerPart.replace(/[\x00-\x1F\x7F-\x9F‡´«]/g, ' ').trim();
+        const headerLines = cleanedHeader.split(/\s{2,}|\n/).map(s => s.trim()).filter(Boolean);
+        
+        if (headerLines.length >= 2) {
+          title = headerLines[0];
+          description = headerLines.slice(1).join(' ');
+        } else if (headerLines.length === 1) {
+          title = headerLines[0];
+        }
+
+        // 末尾のバイナリ制御コードを除去
+        instruction = bodyPart.replace(/[\x00-\x08\x0E-\x1F\x7F-\x9F]+.*$/, '').trim();
+      } else {
+        instruction = raw.replace(/[\x00-\x1F\x7F-\x9F]/g, '');
+      }
+
+      return { title, description, instruction };
+    }
+
+    async function handleFile(file) {
+      if (!file || !file.name.endsWith('.zip')) return alert('ZIPファイルを選択してください。');
+
+      const zip = new JSZip();
+      const zipContent = await zip.loadAsync(file);
+      const newGems = [];
+
+      for (const [relativePath, zipEntry] of Object.entries(zipContent.files)) {
+        if (!zipEntry.dir && !relativePath.startsWith('__MACOSX')) {
+          const content = await zipEntry.async('string');
+          if (content.includes('#')) {
+            const fileName = relativePath.split('/').pop();
+            const gem = parseGemRawText(content, fileName);
+            newGems.push(gem);
+          }
+        }
+      }
+
+      if (newGems.length === 0) {
+        return alert('Gemの指示データが見つかりませんでした。');
+      }
+
+      // 重複チェックしてマージ
+      newGems.forEach(ng => {
+        const existIdx = gemsData.findIndex(g => g.title === ng.title);
+        if (existIdx >= 0) {
+          gemsData[existIdx] = ng;
+        } else {
+          gemsData.push(ng);
+        }
+      });
+
+      // LocalStorage に永続保存
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(gemsData));
+      showViewer();
+    }
+
+    function showViewer() {
+      dropZone.classList.add('hidden');
+      document.getElementById('viewer-container').classList.remove('hidden');
+      clearBtn.classList.remove('hidden');
+      renderList(gemsData);
+      selectGem(0);
+    }
+
+    function renderList(list) {
+      const listContainer = document.getElementById('gem-list');
+      listContainer.innerHTML = '';
+      list.forEach((gem, idx) => {
+        const item = document.createElement('button');
+        item.className = `w-full text-left p-3.5 transition border-l-4 ${idx === selectedIndex ? 'border-indigo-600 bg-indigo-50/70 font-bold' : 'border-transparent hover:bg-slate-50'}`;
+        item.innerHTML = `
+          <div class="text-xs text-slate-800 truncate">${gem.title}</div>
+          <div class="text-[11px] text-slate-400 truncate mt-0.5">${gem.description || '説明なし'}</div>
+        `;
+        item.onclick = () => selectGem(idx);
+        listContainer.appendChild(item);
+      });
+    }
+
+    function selectGem(index) {
+      selectedIndex = index;
+      const gem = gemsData[index];
+      if (!gem) return;
+
+      document.getElementById('view-title').textContent = gem.title;
+      
+      const descBox = document.getElementById('view-desc-box');
+      if (gem.description) {
+        descBox.classList.remove('hidden');
+        document.getElementById('view-desc').textContent = gem.description;
+      } else {
+        descBox.classList.add('hidden');
+      }
+
+      document.getElementById('view-instruction').textContent = gem.instruction;
+      document.getElementById('char-count').textContent = `${gem.instruction.length.toLocaleString()} 文字`;
+
+      const copyBtn = document.getElementById('copy-btn');
+      copyBtn.classList.remove('hidden');
+      copyBtn.onclick = () => {
+        navigator.clipboard.writeText(gem.instruction);
+        copyBtn.textContent = 'コピーしました！';
+        setTimeout(() => copyBtn.textContent = '指示をコピー', 2000);
+      };
+
+      // リスト選択ハイライト更新
+      renderList(gemsData);
+    }
+  </script>
+</body>
+</html>
