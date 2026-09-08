@@ -3,30 +3,27 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Gem Studio — Gemini Gem バイナリデコーダー</title>
-<meta name="description" content="Google Gemini の Gem エクスポート ZIP を、ブラウザ内で Protobuf ワイヤーフォーマットとして直接解析するツール。データは一切外部に送信されません。">
+<title>Gem Studio — Gemini の Gem を一覧にする</title>
+<meta name="description" content="Gemini からエクスポートした Gem の ZIP を読み込み、タイトル・説明文・カスタム指示を一覧で確認し、Excel やスプレッドシートに書き出せます。ファイルは端末の外に出ません。">
 
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&display=swap" rel="stylesheet">
 
 <script>
   tailwind.config = {
     theme: {
       extend: {
         colors: {
-          ink:      { DEFAULT: '#101826', panel: '#17222F', card: '#1E2B3B', line: '#2A3B4D' },
-          paper:    { DEFAULT: '#E7EDF3', muted: '#8CA0B3' },
-          signal:   { DEFAULT: '#D8A34C', soft: '#E9C482' },
-          trace:    { DEFAULT: '#59C3B4', soft: '#8FDCD0' },
-          alert:    { DEFAULT: '#D9736C' },
+          ink:    { DEFAULT: '#101826', panel: '#17222F', card: '#1E2B3B', line: '#2A3B4D' },
+          paper:  { DEFAULT: '#E7EDF3', muted: '#8CA0B3' },
+          signal: { DEFAULT: '#D8A34C', soft: '#E9C482' },
+          trace:  { DEFAULT: '#59C3B4' },
+          alert:  { DEFAULT: '#D9736C' },
         },
-        fontFamily: {
-          sans: ['"Zen Kaku Gothic New"', 'sans-serif'],
-          mono: ['"JetBrains Mono"', 'monospace'],
-        },
+        fontFamily: { sans: ['"Zen Kaku Gothic New"', 'sans-serif'] },
       },
     },
   };
@@ -36,21 +33,12 @@
   html { background: #101826; }
   body { font-feature-settings: "palt"; }
   ::selection { background: #D8A34C; color: #101826; }
-  .scrollbar-thin::-webkit-scrollbar { width: 8px; height: 8px; }
+  .scrollbar-thin::-webkit-scrollbar { width: 8px; }
   .scrollbar-thin::-webkit-scrollbar-thumb { background: #2A3B4D; border-radius: 4px; }
-  .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
   @media (prefers-reduced-motion: reduce) {
     * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
   }
-  .focus-ring:focus-visible {
-    outline: 2px solid #D8A34C;
-    outline-offset: 2px;
-  }
-  .tlv-pulse { animation: tlvpulse 2.6s ease-in-out infinite; }
-  @keyframes tlvpulse {
-    0%, 100% { opacity: 0.35; }
-    50% { opacity: 1; }
-  }
+  .focus-ring:focus-visible { outline: 2px solid #D8A34C; outline-offset: 2px; }
   .drop-active { border-color: #D8A34C !important; background: #1E2B3B; }
 </style>
 </head>
@@ -62,23 +50,13 @@
   <!-- ============ HEADER ============ -->
   <header class="pt-10 pb-8 border-b border-ink-line">
     <div class="flex items-baseline justify-between gap-4 flex-wrap">
-      <h1 class="text-2xl sm:text-3xl font-bold tracking-tight text-paper">Gem Studio</h1>
-      <span class="text-xs font-mono text-paper-muted">100% ローカル実行・送信データなし</span>
+      <h1 class="text-2xl sm:text-3xl font-bold tracking-tight">Gem Studio</h1>
+      <span class="text-xs text-paper-muted">ファイルは端末の外に出ません</span>
     </div>
     <p class="mt-3 text-paper-muted text-sm sm:text-base leading-relaxed max-w-[62ch]">
-      Gemini からエクスポートした Gem の ZIP を読み込み、内部の Protobuf バイナリを
-      タグ・長さ・値（TLV）の単位で直接解析します。文字列の境界はすべて長さバイトから正確に求めるため、
-      テキストの前後にゴミ文字が付着しません。
+      Gemini からエクスポートした Gem の ZIP を読み込むと、タイトル・説明文・カスタム指示を一覧で確認できます。
+      Excel やスプレッドシートに書き出したり、よく使う Gem をこのブラウザに保存しておけます。
     </p>
-
-    <!-- TLV explainer — the one bold visual moment -->
-    <div class="mt-6 flex items-center gap-2 sm:gap-3 font-mono text-[11px] sm:text-xs select-none overflow-x-auto scrollbar-thin pb-2">
-      <div class="flex items-center border border-signal/50 text-signal px-2.5 py-1.5 rounded-none whitespace-nowrap">TAG <span class="text-paper-muted ml-1">field + type</span></div>
-      <span class="text-paper-muted">→</span>
-      <div class="flex items-center border border-trace/50 text-trace px-2.5 py-1.5 rounded-none whitespace-nowrap">LEN <span class="text-paper-muted ml-1">byte 数</span></div>
-      <span class="text-paper-muted">→</span>
-      <div class="flex items-center border border-paper/30 text-paper px-2.5 py-1.5 rounded-none whitespace-nowrap tlv-pulse">VALUE <span class="text-paper-muted ml-1">LEN の分だけ厳密に切り出す</span></div>
-    </div>
   </header>
 
   <!-- ============ UPLOAD ============ -->
@@ -86,82 +64,84 @@
     <div id="dropzone"
          class="border-2 border-dashed border-ink-line rounded-md p-8 sm:p-10 text-center transition-colors cursor-pointer focus-ring"
          tabindex="0" role="button" aria-label="ZIPファイルを選択またはドロップ">
-      <p class="text-paper font-medium">Gem エクスポート ZIP をドロップ、またはクリックして選択</p>
-      <p class="mt-1 text-sm text-paper-muted">ファイルはこのタブの中だけで処理されます</p>
+      <p class="font-medium">Gem の ZIP をドロップ、またはクリックして選択</p>
+      <p class="mt-1 text-sm text-paper-muted">Gemini の設定画面からエクスポートした ZIP をそのまま使えます</p>
       <input id="fileInput" type="file" accept=".zip" class="hidden">
     </div>
-    <div id="processLog" class="mt-4 font-mono text-xs text-paper-muted leading-relaxed hidden"></div>
+    <div id="status" class="mt-4 text-sm hidden"></div>
   </section>
 
-  <!-- ============ CALIBRATION ============ -->
+  <!-- ============ RESULTS ============ -->
+  <section id="resultsSection" class="mt-10 hidden">
+    <div class="flex items-center justify-between gap-3 flex-wrap border-b border-ink-line pb-3">
+      <h2 class="text-lg font-bold">読み込んだ Gem <span id="resultCount" class="text-paper-muted text-sm font-normal"></span></h2>
+      <div class="flex items-center gap-2 flex-wrap">
+        <button id="saveAll" class="text-xs bg-signal text-ink font-bold px-3 py-1.5 rounded-sm hover:bg-signal-soft transition-colors focus-ring">すべてライブラリに保存</button>
+        <button id="exportXlsx" class="text-xs border border-ink-line px-3 py-1.5 hover:border-trace hover:text-trace transition-colors focus-ring">Excel で保存</button>
+        <button id="exportCsv" class="text-xs border border-ink-line px-3 py-1.5 hover:border-trace hover:text-trace transition-colors focus-ring">スプレッドシート用に保存</button>
+      </div>
+    </div>
+
+    <input id="searchBox" type="text" placeholder="タイトル・本文を検索"
+      class="mt-4 w-full bg-ink-panel border border-ink-line rounded-sm px-3 py-2 text-sm placeholder:text-paper-muted focus-ring">
+
+    <div id="gemList" class="mt-5 space-y-3"></div>
+
+    <p class="mt-6 text-xs text-paper-muted">
+      表示される項目がずれている場合は
+      <button id="openCalibration" class="underline decoration-ink-line hover:text-paper focus-ring">項目の割り当てを調整</button>
+      できます。
+    </p>
+  </section>
+
+  <!-- ============ CALIBRATION (hidden unless needed) ============ -->
   <section id="calibrationSection" class="mt-10 hidden">
     <div class="flex items-center justify-between gap-3 flex-wrap">
-      <h2 class="text-lg font-bold text-paper">項目の割り当て</h2>
-      <button id="skipCalibration" class="text-xs text-paper-muted underline decoration-ink-line hover:text-paper focus-ring">後で調整する</button>
+      <h2 class="text-lg font-bold">項目の割り当てを調整</h2>
+      <button id="closeCalibration" class="text-xs text-paper-muted underline decoration-ink-line hover:text-paper focus-ring">閉じる</button>
     </div>
     <p class="mt-2 text-sm text-paper-muted leading-relaxed max-w-[62ch]">
-      Gem 内部の項目番号は Google 側で公開されていません。最初の1件から見つかった文字列候補を、
-      タイトル・説明文・カスタム指示に割り当ててください。項目番号は Gem ごとに変わらないため、
-      一度割り当てれば残り全件に自動適用されます。
+      1件目の Gem から見つかった文章です。どれがタイトル・説明文・カスタム指示にあたるか選んでください。
+      一度選べば、読み込んだすべての Gem と、次回以降の読み込みにも同じ割り当てが使われます。
     </p>
-
-    <div id="groupDetectNote" class="mt-3 text-xs font-mono text-trace hidden"></div>
 
     <div id="candidateList" class="mt-5 space-y-3"></div>
 
     <div class="mt-6 flex items-center gap-3 flex-wrap">
       <button id="applyCalibration" disabled
         class="bg-signal text-ink font-bold text-sm px-5 py-2.5 rounded-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-signal-soft transition-colors focus-ring">
-        この割り当てで全件を抽出
+        この割り当てで表示する
       </button>
-      <span id="calibrationHint" class="text-xs text-paper-muted">タイトルと指示の両方を選ぶと有効になります</span>
+      <span id="calibrationHint" class="text-xs text-paper-muted">タイトルとカスタム指示を選ぶと有効になります</span>
     </div>
   </section>
 
-  <!-- ============ RESULTS ============ -->
-  <section id="resultsSection" class="mt-10 hidden">
+  <!-- ============ LIBRARY ============ -->
+  <section id="librarySection" class="mt-12 hidden">
     <div class="flex items-center justify-between gap-3 flex-wrap border-b border-ink-line pb-3">
-      <h2 class="text-lg font-bold text-paper">抽出結果 <span id="resultCount" class="text-paper-muted font-mono text-sm"></span></h2>
-      <div class="flex items-center gap-2">
-        <button id="recalibrateBtn" class="text-xs text-paper-muted underline decoration-ink-line hover:text-paper focus-ring">再割り当て</button>
-        <button id="exportJson" class="text-xs border border-ink-line px-3 py-1.5 text-paper hover:border-trace hover:text-trace transition-colors focus-ring">JSONで保存</button>
-        <button id="exportCsv" class="text-xs border border-ink-line px-3 py-1.5 text-paper hover:border-trace hover:text-trace transition-colors focus-ring">CSVで保存</button>
+      <h2 class="text-lg font-bold">保存済みライブラリ <span id="libraryCount" class="text-paper-muted text-sm font-normal"></span></h2>
+      <div class="flex items-center gap-2 flex-wrap">
+        <button id="exportLibraryXlsx" class="text-xs border border-ink-line px-3 py-1.5 hover:border-trace hover:text-trace transition-colors focus-ring">Excel で保存</button>
+        <button id="clearLibrary" class="text-xs text-alert/80 underline decoration-alert/30 hover:text-alert focus-ring">すべて削除</button>
       </div>
     </div>
-
-    <input id="searchBox" type="text" placeholder="タイトル・本文を検索"
-      class="mt-4 w-full bg-ink-panel border border-ink-line rounded-sm px-3 py-2 text-sm text-paper placeholder:text-paper-muted focus-ring">
-
-    <div id="gemList" class="mt-5 space-y-3"></div>
-  </section>
-
-  <!-- ============ SAVED LIBRARY (loaded from localStorage on visit) ============ -->
-  <section id="librarySection" class="mt-10 hidden">
-    <div class="flex items-center justify-between gap-3 flex-wrap border-b border-ink-line pb-3">
-      <h2 class="text-lg font-bold text-paper">保存済みライブラリ</h2>
-      <button id="clearLibrary" class="text-xs text-alert/80 underline decoration-alert/30 hover:text-alert focus-ring">すべて削除</button>
-    </div>
-    <p class="mt-2 text-xs text-paper-muted">ブラウザの localStorage に保存されています。このタブ・この端末以外には共有されません。</p>
+    <p class="mt-2 text-xs text-paper-muted">このブラウザに保存されています。他の端末やブラウザには引き継がれません。</p>
     <div id="libraryList" class="mt-4 space-y-3"></div>
   </section>
 
   <footer class="mt-16 pt-6 border-t border-ink-line text-xs text-paper-muted leading-relaxed">
-    <p>解析は正規表現による推測ではなく、Protobuf ワイヤーフォーマット（varint / length-delimited）を
-    再帰的に読み取って行っています。項目番号の割り当てのみが手動のヒューリスティックで、それ以外の
-    バイト境界処理はすべて仕様どおりの厳密な解析です。</p>
+    <p>読み込んだ ZIP はブラウザの中だけで処理され、どこにも送信されません。ページを閉じると保存済みライブラリ以外のデータは消えます。</p>
   </footer>
 </div>
 
-<!-- ============================================================ -->
-<!-- Byte-inspector modal (for a single gem's raw candidate tree) -->
-<!-- ============================================================ -->
-<div id="inspectorOverlay" class="hidden fixed inset-0 bg-black/70 z-40 flex items-start sm:items-center justify-center p-4 overflow-y-auto">
+<!-- ============ EDIT MODAL ============ -->
+<div id="modalOverlay" class="hidden fixed inset-0 bg-black/70 z-40 flex items-start sm:items-center justify-center p-4 overflow-y-auto">
   <div class="bg-ink-panel border border-ink-line max-w-2xl w-full my-8 rounded-sm">
     <div class="flex items-center justify-between px-5 py-3 border-b border-ink-line">
-      <h3 class="font-mono text-sm text-signal">byte inspector</h3>
-      <button id="inspectorClose" class="text-paper-muted hover:text-paper text-xl leading-none focus-ring">×</button>
+      <h3 id="modalTitle" class="text-sm font-bold">内容を編集</h3>
+      <button id="modalClose" class="text-paper-muted hover:text-paper text-xl leading-none focus-ring" aria-label="閉じる">×</button>
     </div>
-    <div id="inspectorBody" class="p-5 font-mono text-xs text-paper-muted space-y-2 max-h-[70vh] overflow-y-auto scrollbar-thin"></div>
+    <div id="modalBody" class="p-5 max-h-[70vh] overflow-y-auto scrollbar-thin"></div>
   </div>
 </div>
 
@@ -169,14 +149,12 @@
 'use strict';
 
 /* =====================================================================
-   PART 1 — Protobuf wire-format reader (generic, schema-less)
+   1. Protobuf wire-format reader
    ===================================================================== */
 
 class ProtoReader {
   constructor(bytes, start = 0, end = bytes.length) {
-    this.bytes = bytes;
-    this.pos = start;
-    this.end = end;
+    this.bytes = bytes; this.pos = start; this.end = end;
   }
   eof() { return this.pos >= this.end; }
   readByte() {
@@ -221,8 +199,8 @@ class ProtoReader {
 const utf8Strict = new TextDecoder('utf-8', { fatal: true });
 
 function printableRatio(str) {
-  if (str.length === 0) return 0;
   const chars = [...str];
+  if (chars.length === 0) return 0;
   let printable = 0;
   for (const ch of chars) {
     const cp = ch.codePointAt(0);
@@ -233,9 +211,6 @@ function printableRatio(str) {
   return printable / chars.length;
 }
 
-// A length-delimited field is treated as TEXT only if it decodes as clean,
-// mostly-printable UTF-8. Otherwise we try to recurse into it as a nested
-// message, and only fall back to opaque "bytes" if neither works.
 function tryDecodeText(bytes) {
   if (bytes.length === 0) return { ok: true, text: '', score: 0 };
   let text;
@@ -259,33 +234,28 @@ function decodeMessage(bytes, start, end, depth, path, maxDepth) {
 
     if (tag.wireType === 0) {
       const v = reader.readVarint();
-      fields.push({ fieldNumber: tag.fieldNumber, wireType: 0, kind: 'varint', value: v, path: path2 });
+      fields.push({ fieldNumber: tag.fieldNumber, kind: 'varint', value: v, path: path2 });
     } else if (tag.wireType === 1) {
       reader.readFixed(8);
-      fields.push({ fieldNumber: tag.fieldNumber, wireType: 1, kind: 'fixed64', path: path2 });
+      fields.push({ fieldNumber: tag.fieldNumber, kind: 'fixed64', path: path2 });
     } else if (tag.wireType === 5) {
       reader.readFixed(4);
-      fields.push({ fieldNumber: tag.fieldNumber, wireType: 5, kind: 'fixed32', path: path2 });
-    } else if (tag.wireType === 2) {
+      fields.push({ fieldNumber: tag.fieldNumber, kind: 'fixed32', path: path2 });
+    } else {
       const { bytes: b, start: s, end: e } = reader.readLenBytes();
-      const entry = { fieldNumber: tag.fieldNumber, wireType: 2, byteStart: s, byteEnd: e, path: path2 };
+      const entry = { fieldNumber: tag.fieldNumber, byteStart: s, byteEnd: e, path: path2 };
       const textResult = tryDecodeText(b);
       let sub = null;
       try { sub = decodeMessage(bytes, s, e, depth + 1, path2, maxDepth); } catch (err) { sub = null; }
 
       if (textResult.ok && textResult.text.length > 0) {
-        entry.kind = 'text';
-        entry.text = textResult.text;
-        entry.score = textResult.score;
+        entry.kind = 'text'; entry.text = textResult.text;
       } else if (sub) {
-        entry.kind = 'message';
-        entry.fields = sub;
+        entry.kind = 'message'; entry.fields = sub;
       } else if (textResult.ok) {
-        entry.kind = 'text';
-        entry.text = '';
+        entry.kind = 'text'; entry.text = '';
       } else {
         entry.kind = 'bytes';
-        entry.len = b.length;
       }
       fields.push(entry);
     }
@@ -297,8 +267,6 @@ function parseTopLevel(bytes, maxDepth = 14) {
   return decodeMessage(bytes, 0, bytes.length, 0, [], maxDepth);
 }
 
-// Collect every text leaf under `fields`, recording its path relative to
-// the group root (e.g. "5.2"), the preview text, and its length.
 function collectTextLeaves(fields, out = []) {
   for (const f of fields) {
     if (f.kind === 'text' && f.text && f.text.trim().length > 0) {
@@ -310,284 +278,510 @@ function collectTextLeaves(fields, out = []) {
   return out;
 }
 
-// Look up a field tree by an exact relative path array, e.g. [5,2].
 function lookupPath(fields, pathArr) {
-  let cursor = fields;
-  let node = null;
+  let cursor = fields, node = null;
   for (let i = 0; i < pathArr.length; i++) {
-    const fn = pathArr[i];
-    node = cursor.find(f => f.fieldNumber === fn);
+    node = cursor.find(f => f.fieldNumber === pathArr[i]);
     if (!node) return null;
     if (i < pathArr.length - 1) {
       if (node.kind !== 'message') return null;
       cursor = node.fields;
     }
   }
-  if (!node) return null;
-  if (node.kind === 'text') return node.text;
-  return null;
+  return node && node.kind === 'text' ? node.text : null;
 }
 
 /* =====================================================================
-   PART 2 — Group detection ("what counts as one Gem in this byte blob")
+   2. Automatic field mapping — no user setup needed
    ===================================================================== */
 
-// A "group" is a candidate boundary for a single Gem's fields.
-// level 0: the whole file is one Gem.
-// level 1: each top-level length-delimited *message* field is one Gem
-//          (handles files that bundle several Gems together).
-function detectGroups(fields) {
-  const groups = [{ level: 0, key: 'file', label: 'ファイル全体を1件として扱う', fields }];
-
-  const byFieldNumber = new Map();
-  for (const f of fields) {
-    if (f.kind === 'message') {
-      if (!byFieldNumber.has(f.fieldNumber)) byFieldNumber.set(f.fieldNumber, []);
-      byFieldNumber.get(f.fieldNumber).push(f);
-    }
-  }
-  for (const [fn, occurrences] of byFieldNumber.entries()) {
-    if (occurrences.length >= 2) {
-      groups.push({
-        level: 1,
-        key: `field${fn}`,
-        fieldNumber: fn,
-        label: `フィールド ${fn} を1件として扱う（${occurrences.length}件を検出）`,
-        fields: occurrences[0].fields,
-        allOccurrences: occurrences,
-      });
-    }
-  }
-  return groups;
+function baseName(name) {
+  const parts = name.split('/');
+  return parts[parts.length - 1].replace(/\.[a-z0-9]+$/i, '');
+}
+function normalizeForMatch(s) {
+  return String(s || '').trim().replace(/\s+/g, '').toLowerCase();
 }
 
-function splitFileIntoGroups(fields, mapping) {
-  if (!mapping.groupFieldNumber) return [fields];
-  const occ = fields.filter(f => f.kind === 'message' && f.fieldNumber === mapping.groupFieldNumber);
-  return occ.length ? occ.map(o => o.fields) : [fields];
+// Looks at every file at once and works out which field holds the title,
+// which holds the description, and which holds the instructions.
+// The strongest clue: a Gem's file is usually named after its title.
+function autoDetectMapping(perFile) {
+  if (perFile.length === 0) return null;
+  const stats = new Map();
+
+  for (const f of perFile) {
+    const base = normalizeForMatch(baseName(f.name));
+    const seen = new Set();
+    for (const leaf of f.leaves) {
+      if (seen.has(leaf.path)) continue;
+      seen.add(leaf.path);
+      if (!stats.has(leaf.path)) stats.set(leaf.path, { path: leaf.path, count: 0, totalLen: 0, nameMatches: 0 });
+      const s = stats.get(leaf.path);
+      s.count++;
+      s.totalLen += leaf.len;
+      if (base && normalizeForMatch(leaf.text) === base) s.nameMatches++;
+    }
+  }
+
+  const total = perFile.length;
+  const candidates = [...stats.values()]
+    .map(s => ({ ...s, avgLen: s.totalLen / s.count, presence: s.count / total, nameMatchRate: s.nameMatches / s.count }))
+    .filter(s => s.presence >= 0.5);
+  if (candidates.length === 0) return null;
+
+  let title = candidates
+    .filter(c => c.nameMatchRate >= 0.5)
+    .sort((a, b) => b.nameMatchRate - a.nameMatchRate || a.avgLen - b.avgLen)[0];
+  const matchedByName = !!title;
+  if (!title) title = [...candidates].sort((a, b) => a.avgLen - b.avgLen)[0];
+
+  const rest = candidates.filter(c => c.path !== title.path).sort((a, b) => b.avgLen - a.avgLen);
+  return {
+    groupFieldNumber: null,
+    title: title.path,
+    instructions: rest[0] ? rest[0].path : null,
+    description: rest[1] ? rest[1].path : null,
+    confidence: matchedByName ? 'high' : 'low',
+  };
 }
 
 /* =====================================================================
-   PART 3 — App state & storage
+   3. State & storage
    ===================================================================== */
 
 const STORAGE_MAPPING = 'gemstudio_mapping_v1';
 const STORAGE_LIBRARY = 'gemstudio_library_v1';
 
 const state = {
-  zipEntries: [],       // [{name, bytes, fields|null, error|null}]
-  mapping: loadMapping(),   // { groupFieldNumber, title:[..], description:[..], instructions:[..] }
-  extracted: [],         // current-session extraction results
-  candidateSelection: {},   // path(string) -> role while calibrating
-  candidates: [],       // current calibration candidate list
-  currentGroupChoice: null,
+  entries: [],
+  mapping: loadMapping(),
+  extracted: [],
+  filtered: null,
+  candidateSelection: {},
 };
 
 function loadMapping() {
-  try {
-    const raw = localStorage.getItem(STORAGE_MAPPING);
-    return raw ? JSON.parse(raw) : null;
-  } catch (e) { return null; }
+  try { const r = localStorage.getItem(STORAGE_MAPPING); return r ? JSON.parse(r) : null; }
+  catch (e) { return null; }
 }
 function saveMapping(m) {
   try { localStorage.setItem(STORAGE_MAPPING, JSON.stringify(m)); } catch (e) {}
 }
 function loadLibrary() {
-  try {
-    const raw = localStorage.getItem(STORAGE_LIBRARY);
-    return raw ? JSON.parse(raw) : [];
-  } catch (e) { return []; }
+  try { const r = localStorage.getItem(STORAGE_LIBRARY); return r ? JSON.parse(r) : []; }
+  catch (e) { return []; }
 }
 function saveLibrary(list) {
-  try { localStorage.setItem(STORAGE_LIBRARY, JSON.stringify(list)); } catch (e) {}
+  try { localStorage.setItem(STORAGE_LIBRARY, JSON.stringify(list)); return true; }
+  catch (e) {
+    setStatus('保存できませんでした。ブラウザの保存容量がいっぱいの可能性があります。', 'error');
+    return false;
+  }
+}
+
+function setStatus(msg, type) {
+  const el = document.getElementById('status');
+  if (!msg) { el.classList.add('hidden'); el.textContent = ''; return; }
+  el.classList.remove('hidden');
+  el.className = 'mt-4 text-sm ' + (type === 'error' ? 'text-alert' : 'text-trace');
+  el.textContent = msg;
 }
 
 /* =====================================================================
-   PART 4 — ZIP ingestion
+   4. Reading the ZIP
    ===================================================================== */
 
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i;
 const SKIP_EXT = /\.(md|txt|html?)$/i;
 
-function log(msg) {
-  const el = document.getElementById('processLog');
-  el.classList.remove('hidden');
-  el.innerHTML += msg + '<br>';
-  el.scrollTop = el.scrollHeight;
-}
-
 async function handleZipFile(file) {
-  document.getElementById('processLog').innerHTML = '';
-  document.getElementById('processLog').classList.remove('hidden');
-  log(`&gt; ${escapeHtml(file.name)} を読み込み中…`);
-
+  setStatus('読み込んでいます…');
   let zip;
   try {
     zip = await JSZip.loadAsync(file);
   } catch (e) {
-    log(`<span class="text-alert">ZIPとして開けませんでした: ${escapeHtml(String(e.message || e))}</span>`);
+    setStatus('この ZIP を開けませんでした。Gemini からエクスポートしたファイルか確認してください。', 'error');
     return;
   }
 
   const entries = [];
   const names = Object.keys(zip.files).filter(n => !zip.files[n].dir);
-  log(`&gt; ${names.length} 個のファイルを検出`);
 
   for (const name of names) {
-    if (IMAGE_EXT.test(name)) { log(`&nbsp;&nbsp;スキップ（画像）: ${escapeHtml(name)}`); continue; }
-    if (SKIP_EXT.test(name)) { log(`&nbsp;&nbsp;スキップ（非対象拡張子）: ${escapeHtml(name)}`); continue; }
-
+    if (IMAGE_EXT.test(name) || SKIP_EXT.test(name)) continue;
     const raw = await zip.files[name].async('uint8array');
     if (raw.length === 0) continue;
 
     if (/\.json$/i.test(name)) {
-      const parsedJson = tryParseJsonEntry(raw);
-      entries.push({ name, kind: 'json', bytes: raw, json: parsedJson, error: parsedJson ? null : 'JSON解析失敗' });
-      log(`&nbsp;&nbsp;JSONとして解析: ${escapeHtml(name)}`);
+      let json = null;
+      try { json = JSON.parse(new TextDecoder('utf-8').decode(raw)); } catch (e) { json = null; }
+      if (json) entries.push({ name, kind: 'json', json });
       continue;
     }
-
     try {
       const fields = parseTopLevel(raw);
-      entries.push({ name, kind: 'proto', bytes: raw, fields, error: null });
-      const leaves = collectTextLeaves(fields);
-      log(`&nbsp;&nbsp;Protobufとして解析: ${escapeHtml(name)}（テキスト候補 ${leaves.length} 件）`);
-    } catch (e) {
-      entries.push({ name, kind: 'proto', bytes: raw, fields: null, error: String(e.message || e) });
-      log(`&nbsp;&nbsp;<span class="text-alert">解析失敗: ${escapeHtml(name)} — ${escapeHtml(String(e.message || e))}</span>`);
-    }
+      entries.push({ name, kind: 'proto', fields, leaves: collectTextLeaves(fields) });
+    } catch (e) { /* not a parseable gem file — skip quietly */ }
   }
 
-  state.zipEntries = entries;
-  const usable = entries.filter(e => (e.kind === 'proto' && e.fields) || (e.kind === 'json' && e.json));
-  log(`&gt; 解析に使えるファイル: ${usable.length} / ${entries.length}`);
+  state.entries = entries;
+  const protoEntries = entries.filter(e => e.kind === 'proto');
 
-  if (usable.length === 0) {
-    log(`<span class="text-alert">解析できるファイルが見つかりませんでした。</span>`);
+  if (entries.length === 0) {
+    setStatus('この ZIP から Gem を読み取れませんでした。別のファイルをお試しください。', 'error');
     return;
   }
 
-  if (state.mapping && mappingLooksApplicable(state.mapping, usable)) {
-    log(`&gt; 保存済みの項目割り当てを適用します`);
-    runExtraction();
+  // Try the saved mapping first, then auto-detect. Calibration is a fallback,
+  // not a required step.
+  let mapping = state.mapping && mappingWorks(state.mapping, protoEntries) ? state.mapping : null;
+  if (!mapping && protoEntries.length) {
+    mapping = autoDetectMapping(protoEntries.map(e => ({ name: e.name, leaves: e.leaves })));
+    if (mapping) saveMapping(mapping);
+  }
+  state.mapping = mapping;
+
+  runExtraction();
+
+  if (state.extracted.length === 0) {
+    setStatus('項目を自動で判別できませんでした。下の一覧から選んでください。', 'error');
+    openCalibration();
   } else {
-    startCalibration(usable);
+    setStatus(`${state.extracted.length} 件の Gem を読み込みました。`);
   }
 }
 
-function tryParseJsonEntry(bytes) {
-  try {
-    const text = new TextDecoder('utf-8').decode(bytes);
-    return JSON.parse(text);
-  } catch (e) { return null; }
-}
-
-function mappingLooksApplicable(mapping, usable) {
-  // Cheap sanity check: does at least one entry's field tree contain
-  // something at the saved title path?
-  const first = usable.find(e => e.kind === 'proto' && e.fields);
-  if (!first) return true; // json-only export, mapping not relevant
-  const groups = splitFileIntoGroups(first.fields, mapping);
-  return groups.some(g => mapping.title && lookupPath(g, mapping.title.split('.').map(Number)) !== null);
+function mappingWorks(mapping, protoEntries) {
+  if (!mapping || !mapping.title) return false;
+  const p = mapping.title.split('.').map(Number);
+  return protoEntries.some(e => lookupPath(e.fields, p) !== null);
 }
 
 /* =====================================================================
-   PART 5 — Calibration UI
+   5. Extraction
    ===================================================================== */
 
-function startCalibration(usableEntries) {
-  const protoEntry = usableEntries.find(e => e.kind === 'proto' && e.fields);
-  document.getElementById('calibrationSection').classList.remove('hidden');
-  document.getElementById('resultsSection').classList.add('hidden');
-
-  if (!protoEntry) {
-    // JSON-only export: try to auto-map common key names, skip calibration UI.
-    log('&gt; JSON形式のみのため、キー名から自動マッピングを試みます');
-    document.getElementById('calibrationSection').classList.add('hidden');
-    runExtraction();
-    return;
-  }
-
-  const groups = detectGroups(protoEntry.fields);
-  const noteEl = document.getElementById('groupDetectNote');
-  const multiGroup = groups.find(g => g.level === 1);
-  if (multiGroup) {
-    noteEl.classList.remove('hidden');
-    noteEl.textContent = `検出: 1つのファイルに複数のGemが含まれている可能性があります（${multiGroup.label}）`;
-  } else {
-    noteEl.classList.add('hidden');
-  }
-
-  const chosenGroup = multiGroup || groups[0];
-  state.currentGroupChoice = chosenGroup;
-
-  const leaves = collectTextLeaves(chosenGroup.fields)
-    .filter(l => l.text.trim().length > 0)
-    .sort((a, b) => b.len - a.len);
-
-  state.candidates = leaves;
-  state.candidateSelection = {};
-  renderCandidates(leaves);
+const JSON_KEYS = {
+  title: ['title', 'name', 'displayName', 'gemName'],
+  description: ['description', 'desc', 'summary'],
+  instructions: ['instructions', 'systemInstruction', 'prompt', 'customInstructions', 'persona'],
+};
+function guessJsonField(obj, keys) {
+  for (const k of keys) if (typeof obj[k] === 'string' && obj[k].trim()) return obj[k];
+  return '';
 }
 
-function renderCandidates(leaves) {
-  const container = document.getElementById('candidateList');
-  container.innerHTML = '';
+function runExtraction() {
+  const m = state.mapping || {};
+  const tp = m.title ? m.title.split('.').map(Number) : null;
+  const dp = m.description ? m.description.split('.').map(Number) : null;
+  const ip = m.instructions ? m.instructions.split('.').map(Number) : null;
+  const results = [];
 
-  if (leaves.length === 0) {
-    container.innerHTML = `<p class="text-sm text-alert">テキスト候補が見つかりませんでした。ファイル形式を確認してください。</p>`;
-    return;
+  for (const entry of state.entries) {
+    if (entry.kind === 'json') {
+      results.push({
+        source: entry.name,
+        title: guessJsonField(entry.json, JSON_KEYS.title),
+        description: guessJsonField(entry.json, JSON_KEYS.description),
+        instructions: guessJsonField(entry.json, JSON_KEYS.instructions),
+      });
+      continue;
+    }
+    const title = tp ? (lookupPath(entry.fields, tp) || '') : '';
+    const description = dp ? (lookupPath(entry.fields, dp) || '') : '';
+    const instructions = ip ? (lookupPath(entry.fields, ip) || '') : '';
+    if (!title && !description && !instructions) continue;
+    results.push({ source: entry.name, title: title || baseName(entry.name), description, instructions });
   }
 
+  state.extracted = results;
+  state.filtered = null;
+  renderResults(results);
+}
+
+/* =====================================================================
+   6. Results
+   ===================================================================== */
+
+function renderResults(results) {
+  const section = document.getElementById('resultsSection');
+  const list = document.getElementById('gemList');
+  document.getElementById('resultCount').textContent = `（${results.length}件）`;
+  section.classList.toggle('hidden', state.extracted.length === 0);
+  list.innerHTML = '';
+  if (results.length === 0) {
+    list.innerHTML = `<p class="text-sm text-paper-muted">該当する Gem はありません。</p>`;
+    return;
+  }
+  results.forEach(gem => list.appendChild(renderGemCard(gem)));
+}
+
+function isInLibrary(gem) {
+  return loadLibrary().some(g => g.title === gem.title && g.instructions === gem.instructions);
+}
+
+function renderGemCard(gem) {
+  const card = document.createElement('div');
+  card.className = 'border border-ink-line bg-ink-card rounded-md p-4 sm:p-5';
+  const saved = isInLibrary(gem);
+
+  card.innerHTML = `
+    <div class="flex items-start justify-between gap-3">
+      <h3 class="text-base font-bold break-words min-w-0">${escapeHtml(gem.title || '（無題）')}</h3>
+      <button data-action="save" class="shrink-0 text-xs font-bold px-3 py-1.5 rounded-sm transition-colors focus-ring ${saved ? 'bg-ink-line text-paper-muted cursor-default' : 'bg-signal text-ink hover:bg-signal-soft'}" ${saved ? 'disabled' : ''}>${saved ? '保存済み' : 'ライブラリに保存'}</button>
+    </div>
+    ${gem.description ? `<p class="mt-2 text-sm text-trace/90 break-words">${escapeHtml(gem.description)}</p>` : ''}
+    <details class="mt-2">
+      <summary class="text-xs text-paper-muted cursor-pointer hover:text-paper">カスタム指示を表示</summary>
+      <p class="mt-2 text-xs text-paper-muted whitespace-pre-wrap break-words leading-relaxed border-l-2 border-ink-line pl-3">${escapeHtml(gem.instructions || '（指示なし）')}</p>
+    </details>
+    <div class="mt-3 flex gap-4">
+      <button data-action="copy" class="text-xs text-paper-muted underline decoration-ink-line hover:text-paper focus-ring">カスタム指示をコピー</button>
+      <button data-action="edit" class="text-xs text-paper-muted underline decoration-ink-line hover:text-paper focus-ring">編集</button>
+    </div>
+  `;
+
+  card.querySelector('[data-action="save"]').addEventListener('click', (e) => {
+    const lib = loadLibrary();
+    lib.push({ ...gem, savedAt: new Date().toISOString() });
+    if (!saveLibrary(lib)) return;
+    renderLibrary();
+    const btn = e.currentTarget;
+    btn.textContent = '保存済み';
+    btn.disabled = true;
+    btn.className = 'shrink-0 text-xs font-bold px-3 py-1.5 rounded-sm bg-ink-line text-paper-muted cursor-default';
+  });
+
+  card.querySelector('[data-action="copy"]').addEventListener('click', (e) => {
+    copyText(gem.instructions || '', e.currentTarget);
+  });
+
+  card.querySelector('[data-action="edit"]').addEventListener('click', () => {
+    openEditor(gem, (updated) => {
+      Object.assign(gem, updated);
+      renderResults(state.filtered || state.extracted);
+    });
+  });
+
+  return card;
+}
+
+document.getElementById('saveAll').addEventListener('click', () => {
+  const lib = loadLibrary();
+  let added = 0;
+  for (const gem of state.extracted) {
+    const dup = lib.some(g => g.title === gem.title && g.instructions === gem.instructions);
+    if (dup) continue;
+    lib.push({ ...gem, savedAt: new Date().toISOString() });
+    added++;
+  }
+  if (!saveLibrary(lib)) return;
+  renderLibrary();
+  renderResults(state.filtered || state.extracted);
+  setStatus(added === 0 ? 'すべてライブラリに保存済みです。' : `${added} 件をライブラリに保存しました。`);
+});
+
+document.getElementById('searchBox').addEventListener('input', (e) => {
+  const q = e.target.value.trim().toLowerCase();
+  state.filtered = !q ? null : state.extracted.filter(g =>
+    (g.title || '').toLowerCase().includes(q) ||
+    (g.description || '').toLowerCase().includes(q) ||
+    (g.instructions || '').toLowerCase().includes(q));
+  renderResults(state.filtered || state.extracted);
+});
+
+/* =====================================================================
+   7. Export — Excel (.xlsx) built directly with JSZip, plus CSV
+   ===================================================================== */
+
+function xmlEscape(s) {
+  return String(s ?? '')
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+}
+function colLetter(n) {
+  let s = '', v = n + 1;
+  while (v > 0) { const m = (v - 1) % 26; s = String.fromCharCode(65 + m) + s; v = Math.floor((v - 1) / 26); }
+  return s;
+}
+
+async function buildXlsx(rows) {
+  const zip = new JSZip();
+  zip.file('[Content_Types].xml',
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`);
+  zip.folder('_rels').file('.rels',
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`);
+  const xl = zip.folder('xl');
+  xl.file('workbook.xml',
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Gems" sheetId="1" r:id="rId1"/></sheets></workbook>`);
+  xl.folder('_rels').file('workbook.xml.rels',
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`);
+  xl.file('styles.xml',
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`);
+
+  let sheet = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><cols><col min="1" max="1" width="30" customWidth="1"/><col min="2" max="2" width="45" customWidth="1"/><col min="3" max="3" width="70" customWidth="1"/></cols><sheetData>`;
+  rows.forEach((row, r) => {
+    sheet += `<row r="${r + 1}">`;
+    row.forEach((cell, c) => {
+      sheet += `<c r="${colLetter(c)}${r + 1}" s="${r === 0 ? 1 : 2}" t="inlineStr"><is><t xml:space="preserve">${xmlEscape(cell)}</t></is></c>`;
+    });
+    sheet += `</row>`;
+  });
+  sheet += `</sheetData></worksheet>`;
+  xl.folder('worksheets').file('sheet1.xml', sheet);
+  return zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+}
+
+function gemsToRows(gems) {
+  return [['タイトル', '説明文', 'カスタム指示'],
+    ...gems.map(g => [g.title || '', g.description || '', g.instructions || ''])];
+}
+
+async function exportExcel(gems, filename) {
+  if (!gems.length) { setStatus('書き出す Gem がありません。', 'error'); return; }
+  try {
+    const blob = await buildXlsx(gemsToRows(gems));
+    downloadBlob(filename, blob);
+  } catch (e) {
+    setStatus('Excel ファイルを作成できませんでした。', 'error');
+  }
+}
+
+function exportCsv(gems, filename) {
+  if (!gems.length) { setStatus('書き出す Gem がありません。', 'error'); return; }
+  const esc = s => `"${String(s ?? '').replace(/"/g, '""')}"`;
+  const body = gemsToRows(gems).map(r => r.map(esc).join(',')).join('\r\n');
+  downloadBlob(filename, new Blob(['\uFEFF' + body], { type: 'text/csv;charset=utf-8' }));
+}
+
+document.getElementById('exportXlsx').addEventListener('click', () => exportExcel(state.extracted, 'gems.xlsx'));
+document.getElementById('exportCsv').addEventListener('click', () => exportCsv(state.extracted, 'gems.csv'));
+document.getElementById('exportLibraryXlsx').addEventListener('click', () => exportExcel(loadLibrary(), 'gems-library.xlsx'));
+
+/* =====================================================================
+   8. Library
+   ===================================================================== */
+
+function renderLibrary() {
+  const lib = loadLibrary();
+  const section = document.getElementById('librarySection');
+  const list = document.getElementById('libraryList');
+  document.getElementById('libraryCount').textContent = lib.length ? `（${lib.length}件）` : '';
+  if (lib.length === 0) { section.classList.add('hidden'); return; }
+  section.classList.remove('hidden');
+  list.innerHTML = '';
+
+  lib.forEach((gem, idx) => {
+    const card = document.createElement('div');
+    card.className = 'border border-ink-line bg-ink-card rounded-md p-4';
+    card.innerHTML = `
+      <div class="flex items-start justify-between gap-3">
+        <h4 class="font-bold break-words min-w-0">${escapeHtml(gem.title || '（無題）')}</h4>
+        <div class="shrink-0 flex gap-3 items-center">
+          <button data-action="copy" class="text-xs text-paper-muted underline decoration-ink-line hover:text-paper focus-ring">コピー</button>
+          <button data-action="edit" class="text-xs text-paper-muted underline decoration-ink-line hover:text-paper focus-ring">編集</button>
+          <button data-action="delete" class="text-xs text-alert/80 hover:text-alert focus-ring">削除</button>
+        </div>
+      </div>
+      ${gem.description ? `<p class="mt-1 text-xs text-trace/90 break-words">${escapeHtml(gem.description)}</p>` : ''}
+      <details class="mt-2">
+        <summary class="text-xs text-paper-muted cursor-pointer hover:text-paper">カスタム指示を表示</summary>
+        <p class="mt-2 text-xs text-paper-muted whitespace-pre-wrap break-words leading-relaxed border-l-2 border-ink-line pl-3">${escapeHtml(gem.instructions || '（指示なし）')}</p>
+      </details>
+    `;
+    card.querySelector('[data-action="delete"]').addEventListener('click', () => {
+      const l = loadLibrary();
+      l.splice(idx, 1);
+      if (!saveLibrary(l)) return;
+      renderLibrary();
+      renderResults(state.filtered || state.extracted);
+    });
+    card.querySelector('[data-action="copy"]').addEventListener('click', (e) => {
+      copyText(gem.instructions || '', e.currentTarget);
+    });
+    card.querySelector('[data-action="edit"]').addEventListener('click', () => {
+      openEditor(gem, (updated) => {
+        const l = loadLibrary();
+        l[idx] = { ...l[idx], ...updated };
+        if (!saveLibrary(l)) return;
+        renderLibrary();
+      });
+    });
+    list.appendChild(card);
+  });
+}
+
+document.getElementById('clearLibrary').addEventListener('click', () => {
+  if (!confirm('保存済みライブラリをすべて削除しますか？')) return;
+  saveLibrary([]);
+  renderLibrary();
+  renderResults(state.filtered || state.extracted);
+});
+
+/* =====================================================================
+   9. Calibration (fallback only)
+   ===================================================================== */
+
+function openCalibration() {
+  const entry = state.entries.find(e => e.kind === 'proto' && e.leaves && e.leaves.length);
+  const section = document.getElementById('calibrationSection');
+  const container = document.getElementById('candidateList');
+  if (!entry) {
+    setStatus('割り当てを調整できる Gem がありません。', 'error');
+    return;
+  }
+  section.classList.remove('hidden');
+  section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  const leaves = [...entry.leaves].sort((a, b) => b.len - a.len);
+  state.candidateSelection = {};
+  const m = state.mapping || {};
+  if (m.title) state.candidateSelection[m.title] = 'title';
+  if (m.description) state.candidateSelection[m.description] = 'description';
+  if (m.instructions) state.candidateSelection[m.instructions] = 'instructions';
+
+  container.innerHTML = '';
   const roles = [
-    { key: 'title', label: 'タイトル', color: 'signal' },
-    { key: 'description', label: '説明文', color: 'trace' },
-    { key: 'instructions', label: 'カスタム指示', color: 'paper' },
+    { key: 'title', label: 'タイトル' },
+    { key: 'description', label: '説明文' },
+    { key: 'instructions', label: 'カスタム指示' },
   ];
 
-  leaves.forEach((leaf, idx) => {
+  leaves.forEach(leaf => {
     const row = document.createElement('div');
     row.className = 'border border-ink-line bg-ink-panel rounded-sm p-3 sm:p-4';
-
-    const preview = leaf.text.length > 220 ? leaf.text.slice(0, 220) + '…' : leaf.text;
-
+    const preview = leaf.text.length > 200 ? leaf.text.slice(0, 200) + '…' : leaf.text;
     row.innerHTML = `
       <div class="flex items-start justify-between gap-3 flex-wrap">
-        <div class="min-w-0 flex-1">
-          <div class="text-[11px] font-mono text-paper-muted">path ${escapeHtml(leaf.path)} · ${leaf.len}文字</div>
-          <p class="mt-1 text-sm text-paper whitespace-pre-wrap break-words">${escapeHtml(preview)}</p>
-        </div>
+        <p class="text-sm whitespace-pre-wrap break-words min-w-0 flex-1">${escapeHtml(preview)}</p>
         <div class="flex gap-1.5 flex-wrap shrink-0" data-role-buttons="${escapeHtml(leaf.path)}"></div>
-      </div>
-    `;
-
-    const btnWrap = row.querySelector('[data-role-buttons]');
+      </div>`;
+    const wrap = row.querySelector('[data-role-buttons]');
     roles.forEach(role => {
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.dataset.path = leaf.path;
       btn.dataset.role = role.key;
-      btn.className = 'text-xs px-2.5 py-1.5 border border-ink-line text-paper-muted hover:text-paper hover:border-paper-muted transition-colors focus-ring rounded-sm';
       btn.textContent = role.label;
       btn.addEventListener('click', () => selectRole(leaf.path, role.key));
-      btnWrap.appendChild(btn);
+      wrap.appendChild(btn);
     });
-
-    const clearBtn = document.createElement('button');
-    clearBtn.type = 'button';
-    clearBtn.className = 'text-xs px-2 py-1.5 text-paper-muted hover:text-alert focus-ring';
-    clearBtn.textContent = '解除';
-    clearBtn.addEventListener('click', () => selectRole(leaf.path, null));
-    btnWrap.appendChild(clearBtn);
-
+    const clear = document.createElement('button');
+    clear.type = 'button';
+    clear.dataset.role = '';
+    clear.className = 'text-xs px-2 py-1.5 text-paper-muted hover:text-alert focus-ring';
+    clear.textContent = '解除';
+    clear.addEventListener('click', () => selectRole(leaf.path, null));
+    wrap.appendChild(clear);
     container.appendChild(row);
   });
 
-  refreshCandidateHighlights();
+  refreshHighlights();
 }
 
 function selectRole(path, role) {
-  // A role can only be assigned to one path at a time.
   if (role) {
     for (const p of Object.keys(state.candidateSelection)) {
       if (state.candidateSelection[p] === role) delete state.candidateSelection[p];
@@ -596,187 +790,63 @@ function selectRole(path, role) {
   } else {
     delete state.candidateSelection[path];
   }
-  refreshCandidateHighlights();
+  refreshHighlights();
 }
 
-function refreshCandidateHighlights() {
-  const roleStyles = {
+function refreshHighlights() {
+  const active = {
     title: 'bg-signal text-ink border-signal',
     description: 'bg-trace text-ink border-trace',
     instructions: 'bg-paper text-ink border-paper',
   };
   document.querySelectorAll('[data-role-buttons]').forEach(wrap => {
     const path = wrap.getAttribute('data-role-buttons');
-    const activeRole = state.candidateSelection[path];
+    const role = state.candidateSelection[path];
     wrap.querySelectorAll('button[data-role]').forEach(btn => {
-      const isActive = btn.dataset.role === activeRole;
-      btn.className = 'text-xs px-2.5 py-1.5 border transition-colors focus-ring rounded-sm ' +
-        (isActive ? roleStyles[btn.dataset.role] : 'border-ink-line text-paper-muted hover:text-paper hover:border-paper-muted');
+      if (!btn.dataset.role) return;
+      const on = btn.dataset.role === role;
+      btn.className = 'text-xs px-2.5 py-1.5 border rounded-sm transition-colors focus-ring ' +
+        (on ? active[btn.dataset.role] : 'border-ink-line text-paper-muted hover:text-paper hover:border-paper-muted');
     });
   });
-
-  const hasTitle = Object.values(state.candidateSelection).includes('title');
-  const hasInstructions = Object.values(state.candidateSelection).includes('instructions');
-  const applyBtn = document.getElementById('applyCalibration');
-  applyBtn.disabled = !(hasTitle && hasInstructions);
-  document.getElementById('calibrationHint').textContent =
-    applyBtn.disabled ? 'タイトルと指示の両方を選ぶと有効になります' : '準備ができました';
+  const vals = Object.values(state.candidateSelection);
+  const ok = vals.includes('title') && vals.includes('instructions');
+  document.getElementById('applyCalibration').disabled = !ok;
+  document.getElementById('calibrationHint').textContent = ok ? '準備ができました' : 'タイトルとカスタム指示を選ぶと有効になります';
 }
 
 document.getElementById('applyCalibration').addEventListener('click', () => {
-  const mapping = { groupFieldNumber: state.currentGroupChoice?.fieldNumber || null };
-  for (const [path, role] of Object.entries(state.candidateSelection)) {
-    mapping[role] = path;
-  }
+  const mapping = { groupFieldNumber: null, title: null, description: null, instructions: null };
+  for (const [path, role] of Object.entries(state.candidateSelection)) mapping[role] = path;
   state.mapping = mapping;
   saveMapping(mapping);
   document.getElementById('calibrationSection').classList.add('hidden');
   runExtraction();
+  setStatus(`${state.extracted.length} 件の Gem を読み込みました。`);
 });
 
-document.getElementById('skipCalibration').addEventListener('click', () => {
+document.getElementById('closeCalibration').addEventListener('click', () => {
   document.getElementById('calibrationSection').classList.add('hidden');
 });
-
-document.getElementById('recalibrateBtn').addEventListener('click', () => {
-  const usable = state.zipEntries.filter(e => (e.kind === 'proto' && e.fields) || (e.kind === 'json' && e.json));
-  if (usable.length) startCalibration(usable);
-});
+document.getElementById('openCalibration').addEventListener('click', openCalibration);
 
 /* =====================================================================
-   PART 6 — Extraction
+   10. Edit modal, utilities, wiring
    ===================================================================== */
-
-const JSON_KEY_GUESSES = {
-  title: ['title', 'name', 'displayName', 'gemName'],
-  description: ['description', 'desc', 'summary'],
-  instructions: ['instructions', 'systemInstruction', 'prompt', 'customInstructions', 'persona'],
-};
-
-function guessJsonField(obj, candidates) {
-  for (const key of candidates) {
-    if (typeof obj[key] === 'string' && obj[key].trim()) return obj[key];
-  }
-  return '';
-}
-
-function runExtraction() {
-  const results = [];
-  const mapping = state.mapping || {};
-  const titlePath = mapping.title ? mapping.title.split('.').map(Number) : null;
-  const descPath = mapping.description ? mapping.description.split('.').map(Number) : null;
-  const instrPath = mapping.instructions ? mapping.instructions.split('.').map(Number) : null;
-
-  for (const entry of state.zipEntries) {
-    if (entry.kind === 'json' && entry.json) {
-      results.push({
-        source: entry.name,
-        title: guessJsonField(entry.json, JSON_KEY_GUESSES.title),
-        description: guessJsonField(entry.json, JSON_KEY_GUESSES.description),
-        instructions: guessJsonField(entry.json, JSON_KEY_GUESSES.instructions),
-      });
-      continue;
-    }
-    if (entry.kind !== 'proto' || !entry.fields) continue;
-
-    const groups = splitFileIntoGroups(entry.fields, mapping);
-    groups.forEach((g, idx) => {
-      const title = titlePath ? (lookupPath(g, titlePath) || '') : '';
-      const description = descPath ? (lookupPath(g, descPath) || '') : '';
-      const instructions = instrPath ? (lookupPath(g, instrPath) || '') : '';
-      if (!title && !description && !instructions) return;
-      results.push({
-        source: groups.length > 1 ? `${entry.name} #${idx + 1}` : entry.name,
-        title, description, instructions,
-      });
-    });
-  }
-
-  state.extracted = results;
-  renderResults(results);
-}
-
-/* =====================================================================
-   PART 7 — Results rendering, editing, search, export
-   ===================================================================== */
-
-function renderResults(results) {
-  const section = document.getElementById('resultsSection');
-  const list = document.getElementById('gemList');
-  document.getElementById('resultCount').textContent = `(${results.length}件)`;
-
-  if (results.length === 0) {
-    section.classList.remove('hidden');
-    list.innerHTML = `<p class="text-sm text-paper-muted">抽出結果がありません。項目の割り当てを見直してください。</p>`;
-    return;
-  }
-
-  section.classList.remove('hidden');
-  list.innerHTML = '';
-  results.forEach((gem, idx) => list.appendChild(renderGemCard(gem, idx)));
-}
-
-function renderGemCard(gem, idx) {
-  const card = document.createElement('div');
-  card.className = 'border border-ink-line bg-ink-card rounded-md p-4 sm:p-5';
-  card.dataset.idx = idx;
-
-  const descPreview = gem.description ? truncate(gem.description, 140) : '（説明文なし）';
-  const instrPreview = gem.instructions ? truncate(gem.instructions, 140) : '（指示なし）';
-
-  card.innerHTML = `
-    <div class="flex items-start justify-between gap-3">
-      <div class="min-w-0">
-        <p class="text-[11px] font-mono text-paper-muted truncate">${escapeHtml(gem.source)}</p>
-        <h3 class="mt-0.5 text-base font-bold text-paper break-words">${escapeHtml(gem.title || '（無題）')}</h3>
-      </div>
-      <button data-action="save" class="shrink-0 text-xs bg-signal text-ink font-bold px-3 py-1.5 rounded-sm hover:bg-signal-soft transition-colors focus-ring">ライブラリに保存</button>
-    </div>
-    <p class="mt-2 text-sm text-trace/90 break-words">${escapeHtml(descPreview)}</p>
-    <details class="mt-2">
-      <summary class="text-xs text-paper-muted cursor-pointer hover:text-paper">カスタム指示を表示</summary>
-      <p class="mt-2 text-xs text-paper-muted whitespace-pre-wrap break-words leading-relaxed border-l-2 border-ink-line pl-3">${escapeHtml(gem.instructions || '（指示なし）')}</p>
-    </details>
-    <div class="mt-3 flex gap-3">
-      <button data-action="edit" class="text-xs text-paper-muted underline decoration-ink-line hover:text-paper focus-ring">編集</button>
-    </div>
-  `;
-
-  card.querySelector('[data-action="save"]').addEventListener('click', () => {
-    const lib = loadLibrary();
-    lib.push({ ...gem, savedAt: new Date().toISOString() });
-    saveLibrary(lib);
-    renderLibrary();
-    const btn = card.querySelector('[data-action="save"]');
-    btn.textContent = '保存しました';
-    btn.disabled = true;
-    btn.className = 'shrink-0 text-xs bg-ink-line text-paper-muted font-bold px-3 py-1.5 rounded-sm cursor-default';
-  });
-
-  card.querySelector('[data-action="edit"]').addEventListener('click', () => openEditor(gem, (updated) => {
-    Object.assign(gem, updated);
-    const newCard = renderGemCard(gem, idx);
-    card.replaceWith(newCard);
-  }));
-
-  return card;
-}
 
 function openEditor(gem, onSave) {
-  const overlay = document.getElementById('inspectorOverlay');
-  const body = document.getElementById('inspectorBody');
-  document.getElementById('inspectorOverlay').classList.remove('hidden');
-  document.querySelector('#inspectorOverlay h3').textContent = '手動で編集';
-
-  body.innerHTML = `
-    <label class="block text-[11px] text-paper-muted mb-1">タイトル</label>
-    <input id="editTitle" class="w-full bg-ink border border-ink-line rounded-sm px-2 py-1.5 text-sm text-paper mb-3 focus-ring" value="${escapeAttr(gem.title)}">
-    <label class="block text-[11px] text-paper-muted mb-1">説明文</label>
-    <textarea id="editDesc" rows="3" class="w-full bg-ink border border-ink-line rounded-sm px-2 py-1.5 text-sm text-paper mb-3 focus-ring">${escapeHtml(gem.description)}</textarea>
-    <label class="block text-[11px] text-paper-muted mb-1">カスタム指示</label>
-    <textarea id="editInstr" rows="6" class="w-full bg-ink border border-ink-line rounded-sm px-2 py-1.5 text-sm text-paper mb-4 focus-ring">${escapeHtml(gem.instructions)}</textarea>
-    <button id="editSaveBtn" class="bg-signal text-ink font-bold text-sm px-4 py-2 rounded-sm hover:bg-signal-soft transition-colors focus-ring">反映する</button>
+  const overlay = document.getElementById('modalOverlay');
+  document.getElementById('modalTitle').textContent = '内容を編集';
+  document.getElementById('modalBody').innerHTML = `
+    <label class="block text-xs text-paper-muted mb-1">タイトル</label>
+    <input id="editTitle" class="w-full bg-ink border border-ink-line rounded-sm px-2 py-1.5 text-sm mb-3 focus-ring" value="${escapeHtml(gem.title || '')}">
+    <label class="block text-xs text-paper-muted mb-1">説明文</label>
+    <textarea id="editDesc" rows="3" class="w-full bg-ink border border-ink-line rounded-sm px-2 py-1.5 text-sm mb-3 focus-ring">${escapeHtml(gem.description || '')}</textarea>
+    <label class="block text-xs text-paper-muted mb-1">カスタム指示</label>
+    <textarea id="editInstr" rows="8" class="w-full bg-ink border border-ink-line rounded-sm px-2 py-1.5 text-sm mb-4 focus-ring">${escapeHtml(gem.instructions || '')}</textarea>
+    <button id="editSaveBtn" class="bg-signal text-ink font-bold text-sm px-4 py-2 rounded-sm hover:bg-signal-soft transition-colors focus-ring">保存する</button>
   `;
+  overlay.classList.remove('hidden');
   document.getElementById('editSaveBtn').addEventListener('click', () => {
     onSave({
       title: document.getElementById('editTitle').value,
@@ -787,94 +857,55 @@ function openEditor(gem, onSave) {
   });
 }
 
-document.getElementById('inspectorClose').addEventListener('click', () => {
-  document.getElementById('inspectorOverlay').classList.add('hidden');
+document.getElementById('modalClose').addEventListener('click', () => {
+  document.getElementById('modalOverlay').classList.add('hidden');
 });
-document.getElementById('inspectorOverlay').addEventListener('click', (e) => {
-  if (e.target.id === 'inspectorOverlay') e.target.classList.add('hidden');
+document.getElementById('modalOverlay').addEventListener('click', (e) => {
+  if (e.target.id === 'modalOverlay') e.target.classList.add('hidden');
 });
-
-document.getElementById('searchBox').addEventListener('input', (e) => {
-  const q = e.target.value.trim().toLowerCase();
-  const filtered = !q ? state.extracted : state.extracted.filter(g =>
-    (g.title || '').toLowerCase().includes(q) ||
-    (g.description || '').toLowerCase().includes(q) ||
-    (g.instructions || '').toLowerCase().includes(q)
-  );
-  renderResults(filtered);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') document.getElementById('modalOverlay').classList.add('hidden');
 });
 
-document.getElementById('exportJson').addEventListener('click', () => {
-  downloadFile('gems.json', JSON.stringify(state.extracted, null, 2), 'application/json');
-});
-document.getElementById('exportCsv').addEventListener('click', () => {
-  const header = ['source', 'title', 'description', 'instructions'];
-  const rows = state.extracted.map(g => header.map(k => csvEscape(g[k] || '')).join(','));
-  downloadFile('gems.csv', '\uFEFF' + [header.join(','), ...rows].join('\r\n'), 'text/csv');
-});
-
-/* =====================================================================
-   PART 8 — Library (persisted across sessions)
-   ===================================================================== */
-
-function renderLibrary() {
-  const lib = loadLibrary();
-  const section = document.getElementById('librarySection');
-  const list = document.getElementById('libraryList');
-  if (lib.length === 0) { section.classList.add('hidden'); return; }
-  section.classList.remove('hidden');
-  list.innerHTML = '';
-  lib.forEach((gem, idx) => {
-    const card = document.createElement('div');
-    card.className = 'border border-ink-line bg-ink-card rounded-md p-4 flex items-start justify-between gap-3';
-    card.innerHTML = `
-      <div class="min-w-0">
-        <h4 class="font-bold text-paper break-words">${escapeHtml(gem.title || '（無題）')}</h4>
-        <p class="mt-1 text-xs text-paper-muted break-words">${escapeHtml(truncate(gem.description || '', 120))}</p>
-      </div>
-      <button data-idx="${idx}" class="shrink-0 text-xs text-alert/80 hover:text-alert focus-ring">削除</button>
-    `;
-    card.querySelector('button').addEventListener('click', () => {
-      const l = loadLibrary();
-      l.splice(idx, 1);
-      saveLibrary(l);
-      renderLibrary();
-    });
-    list.appendChild(card);
-  });
+function copyText(text, btn) {
+  const done = () => {
+    const original = btn.textContent;
+    btn.textContent = 'コピーしました';
+    setTimeout(() => { btn.textContent = original; }, 1600);
+  };
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
+  } else {
+    fallbackCopy(text, done);
+  }
 }
-
-document.getElementById('clearLibrary').addEventListener('click', () => {
-  if (!confirm('保存済みライブラリをすべて削除しますか？')) return;
-  saveLibrary([]);
-  renderLibrary();
-});
-
-/* =====================================================================
-   PART 9 — Utilities & wiring
-   ===================================================================== */
+function fallbackCopy(text, done) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand('copy'); done(); } catch (e) {}
+  ta.remove();
+}
 
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
   }[c]));
 }
-function escapeAttr(s) { return escapeHtml(s); }
-function truncate(s, n) { return s.length > n ? s.slice(0, n) + '…' : s; }
-function csvEscape(s) { return `"${String(s).replace(/"/g, '""')}"`; }
 
-function downloadFile(name, content, mime) {
-  const blob = new Blob([content], { type: mime });
+function downloadBlob(name, blob) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url; a.download = name;
   document.body.appendChild(a); a.click(); a.remove();
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 const dropzone = document.getElementById('dropzone');
 const fileInput = document.getElementById('fileInput');
-
 dropzone.addEventListener('click', () => fileInput.click());
 dropzone.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); }
@@ -883,14 +914,12 @@ fileInput.addEventListener('change', () => {
   if (fileInput.files[0]) handleZipFile(fileInput.files[0]);
 });
 ['dragenter', 'dragover'].forEach(evt =>
-  dropzone.addEventListener(evt, (e) => { e.preventDefault(); dropzone.classList.add('drop-active'); })
-);
+  dropzone.addEventListener(evt, (e) => { e.preventDefault(); dropzone.classList.add('drop-active'); }));
 ['dragleave', 'drop'].forEach(evt =>
-  dropzone.addEventListener(evt, (e) => { e.preventDefault(); dropzone.classList.remove('drop-active'); })
-);
+  dropzone.addEventListener(evt, (e) => { e.preventDefault(); dropzone.classList.remove('drop-active'); }));
 dropzone.addEventListener('drop', (e) => {
-  const file = e.dataTransfer.files[0];
-  if (file) handleZipFile(file);
+  const f = e.dataTransfer.files[0];
+  if (f) handleZipFile(f);
 });
 
 renderLibrary();
