@@ -85,15 +85,12 @@
     const clearBtn = document.getElementById('clear-btn');
     const searchBox = document.getElementById('search-box');
 
-    // 起動時に保存されたデータを読み込み
     window.addEventListener('DOMContentLoaded', () => {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         try {
           gemsData = JSON.parse(saved);
-          if (gemsData.length > 0) {
-            showViewer();
-          }
+          if (gemsData.length > 0) showViewer();
         } catch (e) {
           console.error(e);
         }
@@ -123,12 +120,13 @@
       renderList(filtered);
     });
 
- // バイナリ／混在テキストからタイトル・説明・カスタム指示を抽出する賢いパーサー
+    // 究極のクリーンアップ・パーサー（ホワイトリスト方式）
     function parseGemRawText(raw, filename) {
-      // 1. 制御文字や文字化け記号（‡, ´, «,  など）を改行に変換してテキストを分割
-      const separatorRegex = /[\x00-\x09\x0B\x0C\x0E-\x1F\x7F\uFFFD‡´«]+/g;
-      
-      let blocks = raw.split(separatorRegex)
+      // 1. 日本語、英数字、一般的な記号「以外」の謎のバイナリ文字（Ĝ、Æなど）をすべて改行に変換して切り離す
+      let safeText = raw.replace(/[^\w\sぁ-んァ-ヶ一-龥ー・。、！？!?（）()【】『』「」：:;,.+*#＃\-=<>\/\|@]/g, '\n');
+
+      // 2. 空行でブロックに分割
+      let blocks = safeText.split(/\n+/)
         .map(b => b.trim())
         .filter(b => b.length > 0);
 
@@ -136,7 +134,7 @@
         return { title: filename.replace(/\.[^/.]+$/, ""), description: "", instruction: raw };
       }
 
-      // 2. 最も文字数が多いブロックを「カスタム指示（プロンプト）」と判定する
+      // 3. 一番文字数が多いブロックを「カスタム指示」とする
       let maxLen = -1;
       let instructionIndex = -1;
       for (let i = 0; i < blocks.length; i++) {
@@ -147,29 +145,36 @@
       }
 
       let instruction = blocks[instructionIndex];
-      // プロンプト先頭に付着しがちなゴミ（数字やアルファベットなど）を軽くお掃除
-      instruction = instruction.replace(/^[0-9A-Za-z]\s*(?=[#＃【「])/, '');
-
-      // 3. プロンプトより前にあるブロックをタイトルと説明文に振り分ける
       let beforeBlocks = blocks.slice(0, instructionIndex);
 
-      // ゴミデータ（1文字だけのアルファベットや数字、単独の数字など）を除外
-      beforeBlocks = beforeBlocks.filter(text => {
-        if (text.length <= 1 && /^[a-zA-Z0-9]$/.test(text)) return false;
-        if (/^[0-9]+$/.test(text)) return false;
-        return true;
-      });
+      // --- さらに綺麗にするためのお掃除関数 ---
+      function superClean(text) {
+        // 先頭に残った記号（! や - など）を除去
+        let t = text.replace(/^[^a-zA-Z0-9ぁ-んァ-ヶ一-龥【「『（]+/g, '');
+        // 先頭の孤立した1文字（例: "Z " や "0 "）を除去
+        t = t.replace(/^[a-zA-Z0-9]\s+/, '');
+        return t.trim();
+      }
+
+      instruction = superClean(instruction);
+      // プロンプト末尾にくっつきがちな謎の1文字（Hなど）を削除
+      instruction = instruction.replace(/\s+[a-zA-Z0-9]$/, '');
+
+      // タイトルと説明文の候補をクリーニング
+      let validHeaders = beforeBlocks
+        .map(b => superClean(b))
+        .filter(b => b.length > 1); // 1文字以下のゴミは捨てる
 
       let title = "名称不明";
       let description = "";
 
-      if (beforeBlocks.length >= 2) {
-        title = beforeBlocks[0];
-        description = beforeBlocks.slice(1).join('\n');
-      } else if (beforeBlocks.length === 1) {
-        title = beforeBlocks[0];
+      if (validHeaders.length > 0) {
+        title = validHeaders[0];
+        if (validHeaders.length > 1) {
+          description = validHeaders.slice(1).join('\n');
+        }
       } else {
-        title = filename.replace(/\.[^/.]+$/, ""); // 取れなかったらファイル名にする
+        title = filename.replace(/\.[^/.]+$/, "");
       }
 
       return { title, description, instruction };
@@ -183,14 +188,11 @@
       const newGems = [];
 
       for (const [relativePath, zipEntry] of Object.entries(zipContent.files)) {
-        // MACOSXフォルダやディレクトリを除外。すべてのファイルをチェック対象にする
         if (!zipEntry.dir && !relativePath.startsWith('__MACOSX')) {
           const content = await zipEntry.async('string');
-          // 空っぽじゃないファイルはとりあえず解析にかけてみる
           if (content.trim().length > 0) {
             const fileName = relativePath.split('/').pop();
             const gem = parseGemRawText(content, fileName);
-            // ちゃんとプロンプトが取れたものだけ追加
             if (gem.instruction.length > 10) {
               newGems.push(gem);
             }
@@ -198,21 +200,14 @@
         }
       }
 
-      if (newGems.length === 0) {
-        return alert('Gemの指示データが見つかりませんでした。');
-      }
+      if (newGems.length === 0) return alert('Gemの指示データが見つかりませんでした。');
 
-      // 重複チェックしてマージ
       newGems.forEach(ng => {
         const existIdx = gemsData.findIndex(g => g.title === ng.title);
-        if (existIdx >= 0) {
-          gemsData[existIdx] = ng;
-        } else {
-          gemsData.push(ng);
-        }
+        if (existIdx >= 0) gemsData[existIdx] = ng;
+        else gemsData.push(ng);
       });
 
-      // LocalStorage に永続保存
       localStorage.setItem(STORAGE_KEY, JSON.stringify(gemsData));
       showViewer();
     }
@@ -266,7 +261,6 @@
         setTimeout(() => copyBtn.textContent = '指示をコピー', 2000);
       };
 
-      // リスト選択ハイライト更新
       renderList(gemsData);
     }
   </script>
