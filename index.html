@@ -123,21 +123,17 @@
       renderList(filtered);
     });
 
-    // バイナリ／混在テキストからタイトル・説明・カスタム指示を抽出する賢いパーサー
+ // バイナリ／混在テキストからタイトル・説明・カスタム指示を抽出する賢いパーサー
     function parseGemRawText(raw, filename) {
-      let title = filename.replace(/\.[^/.]+$/, "");
-      let description = "";
-      let instruction = "";
-
-      // 1. 改行以外の機械用制御文字や、文字化け記号を区切りとしてテキストを分割
-      const separatorRegex = /[\x00-\x09\x0B\x0C\x0E-\x1F\x7F\uFFFD]+/g;
+      // 1. 制御文字や文字化け記号（‡, ´, «,  など）を改行に変換してテキストを分割
+      const separatorRegex = /[\x00-\x09\x0B\x0C\x0E-\x1F\x7F\uFFFD‡´«]+/g;
       
       let blocks = raw.split(separatorRegex)
         .map(b => b.trim())
         .filter(b => b.length > 0);
 
       if (blocks.length === 0) {
-        return { title, description: "", instruction: raw };
+        return { title: filename.replace(/\.[^/.]+$/, ""), description: "", instruction: raw };
       }
 
       // 2. 最も文字数が多いブロックを「カスタム指示（プロンプト）」と判定する
@@ -150,19 +146,30 @@
         }
       }
 
-      instruction = blocks[instructionIndex];
+      let instruction = blocks[instructionIndex];
+      // プロンプト先頭に付着しがちなゴミ（数字やアルファベットなど）を軽くお掃除
+      instruction = instruction.replace(/^[0-9A-Za-z]\s*(?=[#＃【「])/, '');
 
       // 3. プロンプトより前にあるブロックをタイトルと説明文に振り分ける
-      const beforeBlocks = blocks.slice(0, instructionIndex);
+      let beforeBlocks = blocks.slice(0, instructionIndex);
 
-      // 先頭の文字化けしやすい数文字（バイナリの残骸）をお掃除する用のルール
-      const cleanPrefix = (text) => text.replace(/^[^a-zA-Z0-9ぁ-んァ-ヶ一-龥【「『（]+/g, '');
+      // ゴミデータ（1文字だけのアルファベットや数字、単独の数字など）を除外
+      beforeBlocks = beforeBlocks.filter(text => {
+        if (text.length <= 1 && /^[a-zA-Z0-9]$/.test(text)) return false;
+        if (/^[0-9]+$/.test(text)) return false;
+        return true;
+      });
+
+      let title = "名称不明";
+      let description = "";
 
       if (beforeBlocks.length >= 2) {
-        title = cleanPrefix(beforeBlocks[0]);
-        description = cleanPrefix(beforeBlocks.slice(1).join('\n'));
+        title = beforeBlocks[0];
+        description = beforeBlocks.slice(1).join('\n');
       } else if (beforeBlocks.length === 1) {
-        description = cleanPrefix(beforeBlocks[0]);
+        title = beforeBlocks[0];
+      } else {
+        title = filename.replace(/\.[^/.]+$/, ""); // 取れなかったらファイル名にする
       }
 
       return { title, description, instruction };
