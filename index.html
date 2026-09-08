@@ -9,7 +9,6 @@
 </head>
 <body class="bg-slate-100 text-slate-800 min-h-screen flex flex-col font-sans">
 
-  <!-- ヘッダー -->
   <header class="bg-white border-b border-slate-200 px-6 py-3.5 flex items-center justify-between shadow-sm">
     <div class="flex items-center space-x-3">
       <div class="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-bold text-lg shadow-sm">G</div>
@@ -23,7 +22,6 @@
 
   <main class="flex-1 flex overflow-hidden p-6 gap-6 max-w-7xl mx-auto w-full">
     
-    <!-- アップロード受付エリア -->
     <div id="drop-zone" class="flex-1 border-2 border-dashed border-indigo-200 hover:border-indigo-400 bg-white rounded-2xl flex flex-col items-center justify-center p-8 text-center transition-all cursor-pointer shadow-sm">
       <div class="w-14 h-14 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mb-4 text-2xl font-bold">📂</div>
       <h2 class="text-lg font-bold text-slate-700 mb-1">GemデータのZIPファイルを読み込む</h2>
@@ -34,9 +32,7 @@
       </button>
     </div>
 
-    <!-- メインビューアー（保存データがある場合や解析後に表示） -->
     <div id="viewer-container" class="hidden flex-1 flex gap-6 w-full h-[calc(100vh-130px)]">
-      <!-- 左サイドバー: リスト表示 -->
       <div class="w-80 bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col overflow-hidden">
         <div class="p-3.5 border-b border-slate-100 bg-slate-50/50 space-y-2">
           <div class="flex justify-between items-center">
@@ -48,7 +44,6 @@
         <div id="gem-list" class="flex-1 overflow-y-auto divide-y divide-slate-100"></div>
       </div>
 
-      <!-- 右メインパネル: 詳細 -->
       <div class="flex-1 bg-white rounded-2xl border border-slate-200 shadow-sm p-6 flex flex-col overflow-hidden">
         <div class="flex items-start justify-between pb-4 border-b border-slate-100">
           <div>
@@ -120,21 +115,24 @@
       renderList(filtered);
     });
 
-    // 究極のクリーンアップ・パーサー（ホワイトリスト方式）
+    // 究極のパーサー（ファイル名完全信頼方式）
     function parseGemRawText(raw, filename) {
-      // 1. 日本語、英数字、一般的な記号「以外」の謎のバイナリ文字（Ĝ、Æなど）をすべて改行に変換して切り離す
-      let safeText = raw.replace(/[^\w\sぁ-んァ-ヶ一-龥ー・。、！？!?（）()【】『』「」：:;,.+*#＃\-=<>\/\|@]/g, '\n');
+      // 1. タイトルは「ファイル名」から取得し、先頭の記号ゴミだけ除去
+      let title = filename.replace(/\.[^/.]+$/, "").replace(/^[_\-\*\$\#@]+/g, '');
 
-      // 2. 空行でブロックに分割
+      // 2. バイナリ記号を改行に変換
+      let safeText = raw.replace(/[^\w\sぁ-んァ-ヶ一-龥ー・。、！？!?（）()【】『』「」：:;,.+\-*/#＃]/g, '\n');
+
+      // 3. 3文字以下の意味不明な文字ブロック（休、＄、Zなど）を完全抹消
       let blocks = safeText.split(/\n+/)
         .map(b => b.trim())
-        .filter(b => b.length > 0);
+        .filter(b => b.length > 3);
 
       if (blocks.length === 0) {
-        return { title: filename.replace(/\.[^/.]+$/, ""), description: "", instruction: raw };
+        return { title, description: "", instruction: "テキストを抽出できませんでした。" };
       }
 
-      // 3. 一番文字数が多いブロックを「カスタム指示」とする
+      // 4. 一番長いブロックをプロンプトとする
       let maxLen = -1;
       let instructionIndex = -1;
       for (let i = 0; i < blocks.length; i++) {
@@ -145,37 +143,25 @@
       }
 
       let instruction = blocks[instructionIndex];
-      let beforeBlocks = blocks.slice(0, instructionIndex);
-
-      // --- さらに綺麗にするためのお掃除関数 ---
-      function superClean(text) {
-        // 先頭に残った記号（! や - など）を除去
-        let t = text.replace(/^[^a-zA-Z0-9ぁ-んァ-ヶ一-龥【「『（]+/g, '');
-        // 先頭の孤立した1文字（例: "Z " や "0 "）を除去
-        t = t.replace(/^[a-zA-Z0-9]\s+/, '');
-        return t.trim();
-      }
-
-      instruction = superClean(instruction);
-      // プロンプト末尾にくっつきがちな謎の1文字（Hなど）を削除
-      instruction = instruction.replace(/\s+[a-zA-Z0-9]$/, '');
-
-      // タイトルと説明文の候補をクリーニング
-      let validHeaders = beforeBlocks
-        .map(b => superClean(b))
-        .filter(b => b.length > 1); // 1文字以下のゴミは捨てる
-
-      let title = "名称不明";
       let description = "";
 
-      if (validHeaders.length > 0) {
-        title = validHeaders[0];
-        if (validHeaders.length > 1) {
-          description = validHeaders.slice(1).join('\n');
-        }
-      } else {
-        title = filename.replace(/\.[^/.]+$/, "");
+      // 5. プロンプトより前を説明文とする
+      let beforeBlocks = blocks.slice(0, instructionIndex);
+      if (beforeBlocks.length > 0) {
+        description = beforeBlocks.join('\n').trim();
       }
+
+      // 6. 説明文の先頭に付着した「6」や「0」などのバイナリ残骸を消す
+      description = description.replace(/^[a-zA-Z0-9_\-\*\$\#@]{1,2}(?=[ぁ-んァ-ヶ一-龥【「『])/g, '');
+      
+      // 7. 説明文にタイトルが含まれていたら削る（重複防止）
+      if (description.startsWith(title)) {
+        description = description.substring(title.length).trim();
+        description = description.replace(/^[a-zA-Z0-9_\-\*\$\#@]{1,2}(?=[ぁ-んァ-ヶ一-龥【「『])/g, '');
+      }
+
+      // 8. プロンプト末尾のゴミ（Hなど）を消す
+      instruction = instruction.replace(/\s+[a-zA-Z0-9]$/, '');
 
       return { title, description, instruction };
     }
@@ -200,7 +186,7 @@
         }
       }
 
-      if (newGems.length === 0) return alert('Gemの指示データが見つかりませんでした。');
+      if (newGems.length === 0) return alert('Gemデータが見つかりませんでした。');
 
       newGems.forEach(ng => {
         const existIdx = gemsData.findIndex(g => g.title === ng.title);
@@ -227,7 +213,7 @@
         const item = document.createElement('button');
         item.className = `w-full text-left p-3.5 transition border-l-4 ${idx === selectedIndex ? 'border-indigo-600 bg-indigo-50/70 font-bold' : 'border-transparent hover:bg-slate-50'}`;
         item.innerHTML = `
-          <div class="text-xs text-slate-800 truncate">${gem.title}</div>
+          <div class="text-xs text-slate-800 truncate font-bold">${gem.title}</div>
           <div class="text-[11px] text-slate-400 truncate mt-0.5">${gem.description || '説明なし'}</div>
         `;
         item.onclick = () => selectGem(idx);
